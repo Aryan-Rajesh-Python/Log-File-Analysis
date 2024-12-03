@@ -50,7 +50,7 @@ def display_and_save_results():
     print(f"Endpoint: {most_accessed_endpoint[0]}, Access Count: {most_accessed_endpoint[1]}")
     
     # 3. Suspicious Activity (Failed login attempts above threshold)
-    print(f"\nSuspicious Activity Detected (Failed Logins Above {login_threshold}):")
+    print(f"\nSuspicious Activity Detected:")
     print(f"{'IP Address':<20} {'Failed Login Attempts'}")
     suspicious_activity_found = False  # Flag to check if we found any suspicious activity
     for ip, count in failed_login_count.items():
@@ -80,7 +80,7 @@ def display_and_save_results():
         writer.writerow([])
 
         # Write Suspicious Activity header
-        writer.writerow(['Suspicious Activity Detected (Failed Logins Above 3):'])
+        writer.writerow(['Suspicious Activity Detected:'])
         writer.writerow(['IP Address'.center(20), 'Failed Login Attempts'.center(20)])
 
         # Write failed login attempts to CSV
