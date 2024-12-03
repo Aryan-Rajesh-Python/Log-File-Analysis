@@ -19,5 +19,5 @@ This Python script processes and analyzes server log files to extract key insigh
 ## Installation and Usage
 
    ```bash
-   git clone https://github.com/yourusername/log-file-analysis-tool.git
+   git clone https://github.com/Aryan-Rajesh-Python/log-file-analysis-tool.git
    python Log File Analysis.py
