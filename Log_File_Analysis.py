@@ -30,7 +30,7 @@ def parse_arguments():
 # Define enhanced IP extraction regex (supports IPv4 and IPv6)
 ip_regex = re.compile(r'(\d{1,3}\.){3}\d{1,3}|\[([A-Fa-f0-9:]+)\]')
 
-# Extended IPv6 Validation
+# IP Validation
 def is_valid_ip(ip):
     try:
         # Validate IPv4 format (simple check)
