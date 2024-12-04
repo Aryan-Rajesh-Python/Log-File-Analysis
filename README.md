@@ -31,4 +31,4 @@ This Python script analyzes log files to extract valuable insights such as IP ad
 
    ```bash
    git clone https://github.com/Aryan-Rajesh-Python/Log-File-Analysis.git
-   python Log File Analysis.py  (or)  python Log File Analysis.py --login-threshold 5 --chunk-size 500
+   python Log_File_Analysis.py  (or)  python Log_File_Analysis.py --login-threshold 5 --chunk-size 500
