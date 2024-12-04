@@ -27,10 +27,6 @@ This Python script analyzes log files to extract valuable insights such as IP ad
   - `concurrent.futures` (Thread pool for parallel processing)
   - `logging.handlers` (Rotating file handler for logs)
 
-You can install the required libraries using:
-```bash
-pip install -r requirements.txt
-```
 ## Installation and Usage
 
    ```bash
