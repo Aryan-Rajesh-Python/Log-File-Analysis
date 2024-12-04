@@ -33,7 +33,7 @@ ip_regex = re.compile(r'(\d{1,3}\.){3}\d{1,3}|\[([A-Fa-f0-9:]+)\]')
 # IP Validation
 def is_valid_ip(ip):
     try:
-        # Validate IPv4 format (simple check)
+        # Validate IPv4 format (simple check enough)
         if re.match(r'(\d{1,3}\.){3}\d{1,3}', ip):  # IPv4 validation
             return all(0 <= int(part) <= 255 for part in ip.split('.'))
         
