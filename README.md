@@ -1,21 +1,36 @@
 # Log File Analysis
 
-This Python script processes and analyzes server log files to extract key insights such as IP request counts, most frequently accessed endpoints, and suspicious login attempts. It helps identify unusual patterns such as brute-force login attempts, and provides data for further investigation or reporting.
+This Python script analyzes log files to extract valuable insights such as IP address activity, endpoint access patterns, and failed login attempts. It processes log files efficiently by utilizing multithreading and chunk-based processing. The results are displayed on the console and saved into a timestamped CSV file for further analysis.
 
 ## Features
 
-- **IP Request Count**: Counts the number of requests made by each IP address.
-- **Endpoint Access Frequency**: Identifies the most frequently accessed endpoints (URLs or resource paths).
-- **Failed Login Detection**: Detects suspicious activity by identifying IP addresses with failed login attempts (HTTP status 401 or "Invalid credentials") above a specified threshold.
-- **Results Output**: Displays analysis results in a formatted console output and saves the data to a CSV file for further analysis.
+- **Log file processing**: Handles log files in chunks to optimize memory and processing speed.
+- **IP Address Tracking**: Tracks the number of requests made by each IP address.
+- **Endpoint Access Monitoring**: Identifies the most frequently accessed endpoints.
+- **Suspicious Activity Detection**: Flags IP addresses with failed login attempts exceeding a user-defined threshold.
+- **Multithreading**: Uses multithreading for efficient log file processing across multiple CPU cores.
+- **Rotating logs**: The script logs events in a rotating log file to prevent large log file accumulation.
+- **Customizable Configuration**: Supports configuration via command-line arguments for login attempt thresholds and chunk sizes.
 
 ## Requirements
 
 - Python 3.x
-- `re` (Regular Expressions)
-- `csv` (for saving results)
-- `collections.defaultdict` (for efficient counting)
+- Required Python libraries:
+  - `re` (Regex)
+  - `csv` (CSV file handling)
+  - `logging` (Logging functionality)
+  - `threading` (Multithreading)
+  - `argparse` (Command-line argument parsing)
+  - `os` (Operating system interaction)
+  - `collections` (Data structures like `defaultdict`)
+  - `datetime` (Timestamp handling)
+  - `concurrent.futures` (Thread pool for parallel processing)
+  - `logging.handlers` (Rotating file handler for logs)
 
+You can install the required libraries using:
+```bash
+pip install -r requirements.txt
+```
 ## Installation and Usage
 
    ```bash
