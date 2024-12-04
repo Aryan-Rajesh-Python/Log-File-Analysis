@@ -1,80 +1,147 @@
 import re
 import csv
-import pandas as pd
 import logging
+import threading
+import argparse
+import os
 from collections import defaultdict
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from logging.handlers import RotatingFileHandler
 
-# Set up logging (Only show WARNING and above in terminal)
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logging (Rotating log handler to avoid large log files)
+def setup_logging():
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    
+    # Rotating log file, max size 1MB, 3 backups
+    handler = RotatingFileHandler('sample.log', maxBytes=10**6, backupCount=3)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
-# Define the log file path
-log_file_path = 'sample.log'
+# Parse command-line arguments for configuration
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Log File Analysis")
+    parser.add_argument('--login-threshold', type=int, default=3, help="Threshold for failed login attempts")
+    parser.add_argument('--chunk-size', type=int, default=1000, help="Size of each log chunk for processing")
+    return parser.parse_args()
 
-# Initialize data structures to store results
-ip_requests = defaultdict(int)
-endpoint_access = defaultdict(int)
-failed_login_count = defaultdict(int)
-invalid_user_count = defaultdict(int)
+# Define enhanced IP extraction regex (supports IPv4 and IPv6)
+ip_regex = re.compile(r'(\d{1,3}\.){3}\d{1,3}|\[([A-Fa-f0-9:]+)\]')
 
-# Define the threshold for suspicious activity (failed logins)
-login_threshold = 3  # Adjust this to the desired threshold (e.g., 3)
-
-# Define a function to process the log file
-def process_log_file(log_file_path):
+# Extended IPv6 Validation
+def is_valid_ip(ip):
     try:
-        with open(log_file_path, 'r') as log_file:
-            for line in log_file:
-                # Extract IP address
-                ip_match = re.match(r'(\d{1,3}\.){3}\d{1,3}', line)
-                if ip_match:
-                    ip_address = ip_match.group(0)
-                    ip_requests[ip_address] += 1
+        # Validate IPv4 format (simple check)
+        if re.match(r'(\d{1,3}\.){3}\d{1,3}', ip):  # IPv4 validation
+            return all(0 <= int(part) <= 255 for part in ip.split('.'))
+        
+        # Validate IPv6 format (full validation)
+        if re.match(r'\[([A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\]', ip):  # Full IPv6 address
+            return True
+        elif re.match(r'\[([A-Fa-f0-9]{1,4}:){1,7}:\]', ip):  # IPv6 address with "::" (compressed)
+            return True
+        return False
+    except Exception as e:
+        logging.error(f"Error validating IP address {ip}: {e}")
+        return False
 
-                # Extract endpoint (e.g., URL or resource path)
-                endpoint_match = re.search(r'"(GET|POST|PUT|DELETE) (\S+)', line)
-                if endpoint_match:
-                    endpoint = endpoint_match.group(2)
-                    endpoint_access[endpoint] += 1
+# Initialize thread lock for thread-safety
+lock = threading.Lock()
 
-                # Detect failed login attempts (HTTP status code 401)
-                status_code_match = re.search(r'\s(\d{3})\s', line)
-                if status_code_match and status_code_match.group(1) == '401':
-                    failed_login_count[ip_address] += 1
+# Function to process a single log file chunk
+def process_log_chunk(chunk, ip_requests, endpoint_access, login_attempts):
+    local_ip_requests = defaultdict(int)
+    local_endpoint_access = defaultdict(int)
+    local_login_attempts = defaultdict(int)
 
-                # Additional failed login check for "Invalid credentials"
-                if 'Invalid credentials' in line:
-                    invalid_user_count[ip_address] += 1
-    except FileNotFoundError:
-        logging.error(f"Error: The file '{log_file_path}' was not found.")
-        return
-    except PermissionError:
-        logging.error(f"Error: Permission denied for '{log_file_path}'.")
+    for line in chunk:
+        try:
+            # Extract IP address (supports both IPv4 and IPv6)
+            ip_match = ip_regex.search(line)
+            ip_address = ip_match.group(0) if ip_match else None
+
+            if ip_address and is_valid_ip(ip_address):
+                local_ip_requests[ip_address] += 1
+
+            # Extract endpoint (e.g., URL or resource path)
+            endpoint_match = re.search(r'"(GET|POST|PUT|DELETE) (\S+)', line)
+            if endpoint_match:
+                endpoint = endpoint_match.group(2)
+                local_endpoint_access[endpoint] += 1
+
+            # Detect failed login attempts (HTTP status code 401 or "Invalid credentials" message)
+            status_code_match = re.search(r'\s(\d{3})\s', line)
+            if status_code_match and status_code_match.group(1) == '401':
+                if ip_address:
+                    local_login_attempts[ip_address] += 1
+
+            # Additional failed login check for "Invalid credentials"
+            if 'Invalid credentials' in line and ip_address:
+                local_login_attempts[ip_address] += 1
+        except Exception as e:
+            logging.error(f"Error processing line: {line}\nError: {e}")
+            continue  # Skip this line and continue with the next
+
+    # Safely update global dictionaries using a lock
+    with lock:
+        for ip, count in local_ip_requests.items():
+            ip_requests[ip] += count
+        for endpoint, count in local_endpoint_access.items():
+            endpoint_access[endpoint] += count
+        for ip, count in local_login_attempts.items():
+            login_attempts[ip] += count
+
+# Function to process the log file in chunks using multithreading for efficiency
+def process_log_file(log_file_path, ip_requests, endpoint_access, login_attempts, chunk_size):
+    try:
+        # Open the log file and split it into chunks
+        with open(log_file_path, 'r', encoding='utf-8') as file:
+            chunk = []
+            num_threads = os.cpu_count()  # Dynamically adjust threads based on the system's CPU cores
+            
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = []
+
+                for line in file:
+                    chunk.append(line)
+                    if len(chunk) == chunk_size:
+                        futures.append(executor.submit(process_log_chunk, chunk, ip_requests, endpoint_access, login_attempts))
+                        chunk = []  # Reset chunk after submitting
+                        
+                # Process any remaining lines that didn't fill a full chunk
+                if chunk:
+                    futures.append(executor.submit(process_log_chunk, chunk, ip_requests, endpoint_access, login_attempts))
+
+                # Wait for all threads to complete
+                for future in futures:
+                    future.result()
+
+    except (FileNotFoundError, PermissionError, IOError, OSError) as e:
+        logging.error(f"Error reading the file '{log_file_path}': {str(e)}")
         return
 
 # Function to display and save results
-def display_and_save_results():
+def display_and_save_results(ip_requests, endpoint_access, login_attempts, login_threshold):
     # 1. Requests per IP Address
-    logging.debug("\nRequests per IP Address:")  # Change to debug so it won't show in terminal
-    print(f"\n{'='*40}\nRequests per IP Address:\n{'='*40}")
-    print(f"{'IP Address':<20} {'Request Count':<15}")
+    print(f"\n{'='*80}\nRequests per IP Address:\n{'='*80}")
+    print(f"{'IP Address':<40} {'Request Count':<15}")
     for ip, count in sorted(ip_requests.items(), key=lambda x: x[1], reverse=True):
-        print(f"{ip:<20} {count:<15}")
+        print(f"{ip:<40} {count:<15}")
     
     # 2. Most Frequently Accessed Endpoint
     most_accessed_endpoint = max(endpoint_access.items(), key=lambda x: x[1], default=("None", 0))
-    logging.debug(f"Most Frequently Accessed Endpoint: {most_accessed_endpoint[0]} with {most_accessed_endpoint[1]} accesses.")  # Debug
-    print(f"\n{'='*40}\nMost Frequently Accessed Endpoint:\n{'='*40}")
+    print(f"\n{'='*80}\nMost Frequently Accessed Endpoint:\n{'='*80}")
     print(f"Endpoint: {most_accessed_endpoint[0]}\nAccess Count: {most_accessed_endpoint[1]}")
     
     # 3. Suspicious Activity (Failed login attempts above threshold)
-    logging.debug("Checking for suspicious activity (failed login attempts).")  # Debug
-    print(f"\n{'='*40}\nSuspicious Activity Detected:\n{'='*40}")
-    print(f"{'IP Address':<20} {'Failed Login Attempts':<25}")
+    print(f"\n{'='*80}\nSuspicious Activity Detected:\n{'='*80}")
+    print(f"{'IP Address':<40} {'Failed Login Attempts':<25}")
     suspicious_activity_found = False
-    for ip, count in failed_login_count.items():
+    for ip, count in login_attempts.items():
         if count >= login_threshold:
-            print(f"{ip:<20} {count:<25}")
+            print(f"{ip:<40} {count:<25}")
             suspicious_activity_found = True
     if not suspicious_activity_found:
         print("No suspicious activity detected.")
@@ -83,7 +150,6 @@ def display_and_save_results():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = f'log_analysis_results_{timestamp}.csv'
     
-    logging.debug(f"Saving results to {output_file}")  # Debug
     with open(output_file, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
 
@@ -106,20 +172,30 @@ def display_and_save_results():
         writer.writerow(['Suspicious Activity Detected:'])
         writer.writerow(['IP Address', 'Failed Login Attempts'])
         if suspicious_activity_found:
-            for ip, count in failed_login_count.items():
+            for ip, count in login_attempts.items():
                 if count >= login_threshold:
                     writer.writerow([ip, count])
         else:
             writer.writerow(['No suspicious activity detected', ''])
-    
-    logging.debug(f"Results saved to {output_file}")  # Debug
 
 # Main function to run the analysis
 def main():
-    logging.info("Starting log file analysis.")  # Info level log
-    process_log_file(log_file_path)
-    display_and_save_results()
-    logging.info("Log file analysis complete.")  # Info level log
+    # Parse arguments
+    args = parse_arguments()
+    
+    # Setup logging
+    setup_logging()
+
+    # Initialize data structures
+    ip_requests = defaultdict(int)
+    endpoint_access = defaultdict(int)
+    login_attempts = defaultdict(int)
+
+    # Process the log file
+    process_log_file('sample.log', ip_requests, endpoint_access, login_attempts, args.chunk_size)
+    
+    # Display and save the results
+    display_and_save_results(ip_requests, endpoint_access, login_attempts, args.login_threshold)
 
 if __name__ == '__main__':
     main()
